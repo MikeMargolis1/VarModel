@@ -144,7 +144,7 @@ x_{t,2} = \alpha_{2} + \phi_{21} x_{t-1,{1}} + \phi_{22} x_{t-1,{2}} + \varepsil
 \end{align*}
 
 
-This model simply states that ($x_{t,1}$) `Oil` in the current period is a linear function of the one-lagged values of all variables in the set. The same is true for ($x_{t,2}$) `treasury`. Since the equations are the same on both the right hand sides we can use our VAR(1) model to use the least squares estimator (minimizing the sum of squared errors($\varepsilon{_{i,t}}$)) by treating each equation as a seemingly unrelated regression. Here, the order of variable inputted into the VAR does not matter. We treat each variable symmetrically. We model each variable as endogenous, they are modeled as if they all influence each other. 
+This model simply states that ($x_{t,1}$) `Oil` in the current period is a linear function of the one-lagged values of all variables in the set. The same is true for ($x_{t,2}$) `treasury`. Since the equations are the same on both the right hand sides we can use our VAR(1) model to use the least squares estimator (minimizing the sum of squared errors ($\varepsilon{_i,_t}$)) by treating each equation as a seemingly unrelated regression. Here, the order of variable inputted into the VAR does not matter. We treat each variable symmetrically. We model each variable as endogenous, they are modeled as if they all influence each other. 
 
 In the next few sections we will test to see how/if one variable responds to a asymmetric shock from the steady state in the other variable. Basically, are the variables coupled.
 
