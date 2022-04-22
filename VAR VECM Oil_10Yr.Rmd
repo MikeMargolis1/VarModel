@@ -1,0 +1,232 @@
+---
+title: 'VAR Model'
+author: "Mike Margolis"
+date: '`r format(Sys.Date(),"%B %d, %Y")` <br><br><br>'
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: no
+    fig_caption: yes
+    theme: cerulean
+    toc_float: no
+  pdf_document:
+    toc: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+graphics.off()
+```
+
+```{r, required code, include=FALSE}
+require(fpp3)
+require(tidyquant)
+require(dplyr)
+require(tidyverse)
+require(knitr)
+require(reshape2)
+require(lubridate)
+require(timetk)
+require(vingette)
+require(kableExtra)
+require(vars)
+require(lmtest)
+require(urca)
+require(tsDyn)
+require(apt)
+
+
+```
+
+
+<br> <br> <br> 
+<div align="center">
+***
+# VAR Models:
+## Finding cointegrated economic variables using Vector Auto-Regression Models
+***
+##### By: Mike Margolis
+<div align="Left">
+
+<br> <br> <br> <br> <br>
+
+
+
+###### **Executive Summary:**
+
+In this report we will identify the coupled relationship between the West Texas Intermediate Oil prices and the market yields for 10-year US Treasury Bonds. We will investigate this cointegrated relationship using a Vector Auto-Regressive model (VAR). From the models impulse response function, Granger Test, and forecasted error variance decomposition output we will show that an asymmetric shock in the price for crude oil will lead to a downstream  change in the yield of 10-year US Treasury Bonds. Throughout this paper we will be using bond yields and interest rates interchangeably.  
+
+***
+The full RMD code is available on my GitHub page, use the projects tab on my personal website here for access. [link](https://mikemargolis1.github.io/)
+
+***
+
+###### **Introduction:**
+
+To understand this relationship we must discuss the economic theory behind the yield curve for US Treasury Bonds. The yield curve plots time to maturity on the y-axis (the intervals coincide with the types of treasury bonds offered. i.e. short-term bonds of 3-months to longer-term bonds of 10-years) against a snap-shot of the current interest rate. The yield curve is the fitted line between the time to maturity and interest rates of each bond on the graph. The typical shape of the yield curve is upward sloping, bonds with longer maturities have higher yields compared to bonds with shorter maturity due to their higher interest payments. When the yield curve is normal, you are rewarded by the government for locking your money up for a longer time. How the slope, shape, steepness and level of the yield curve changes reflects financial market conditions and future interest rates. Upward curves indicate higher interest rates in the future. Steeper upwards curves indicate how fast the increase in future interest rates will occur. If the market expects future inflation to occur, and they're right, the Federal Reserve with raise interest rates to "try" to slow the economy down. An increase in interest rates will increase the amount a bond yields. So good news for some bond traders, bad news for others. However, if monetary policy is tight, really tight, and inflation is rapidly growing and interest rates keep rising the yield to short-term bonds may out-yield long-term bonds. This is called an inverted yield curve and this a strong indicator that the economy is heading toward a recession. So no one wins. 
+
+But what does interest rates, inflation expectations, and 10-year bond yields have to do with oil. Crude oil price affects the entire economy through gas prices. If you try to think through how many people use gas in their day to day life, how many companies use gas to transport and manufacture goods across the country and across the world, you will realize it is integral to our economy. It's insane how much the US loves oil, we'll even go to war for it. An increase in oil prices is transmitted downstream to gas prices and you will not only feel these changes while at the pump. You'll feel it everywhere. The increase in prices of the same goods and services you use everyday is inflation. More inflation, higher interest rates affects the yields on US Treasury bonds.
+
+To see in detail how oil prices affect gas prices a great paper from Li-Hsueh Chen, Miles Finney and Kon Lai (2005) is available through this link. [link](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.519.7926&rep=rep1&type=pdf)
+
+So it's safe to say oil prices are an indicator of inflation and future levels of inflation. Current inflation and future levels of inflation require a response from the Federal Reserve, their response, increase interest rates. These changes in interest rates affect the market yield of US Treasury Bonds.
+
+
+***
+
+###### **Data:**
+
+We will be looking at data from the Federal Reserve Economic Database in St. Louis (FRED) during January 1991 to March 2022. We gathered monthly data on West Texas Intermediate grade crude oil spot prices (measured in US dollars per barrel), `WTISPLC`. We also gathered date on the monthly market yield on 10-year constant maturity US Treasury Bonds `GS10` measured in percentages.
+
+
+```{r, loading in the data from FRED}
+Variables4 <- c("WTISPLC", "GS10")
+FRED_data4 <- tq_get(Variables4, get="economic.data", from = "1991-01-01") %>%
+  mutate(value = price, Date = yearmonth(date)) %>%
+  dplyr::select(-date, - price) %>%
+  as_tsibble(index = Date, key = symbol)
+
+FRED_data4_wide <- FRED_data4 %>%
+  pivot_wider(names_from = symbol, values_from = value)  %>%
+  as_tsibble()
+```
+
+```{r, how does the data look, include= FALSE}
+FRED_data4 %>% ggplot(aes(x = Date, y = value)) +
+  geom_line() +
+  facet_grid(vars(symbol), scales = "free_y")
+```
+
+
+Before we can test for cointegration we will use the `KPSS` unit root test to check for nonstationarity in our two variables. Our untransformed data did not pass the unit root test and both are integrated of order one. We then transformed oil prices into the natural logarithm of its value. This step allows us to then transform both variables into the percentage change from month to month. After these transformations both our variables are stationary. Stationary data is a necessity when performing analysis on time-series data. Now that our data is stationary we can begin our test for cointegreation.  
+
+
+```{r checking unit roots on raw data, include=FALSE}
+FRED_data4 %>%
+  features(value, unitroot_ndiffs) %>%
+   kable(format = "html", table.attr = "style='width:30%;' ") %>% 
+    kableExtra::kable_styling()
+```
+
+```{r}
+FRED_data4_mutated <- FRED_data4_wide %>%
+  mutate(treasury = 100 * (GS10 - lag(GS10))/lag(GS10)) %>%
+  mutate(gWTISPLC = log(WTISPLC)) %>%
+  mutate(oil = 100 * (WTISPLC - lag(WTISPLC))/lag(WTISPLC)) %>%
+  dplyr::select(treasury, oil) %>%
+  tidyr::drop_na()
+```
+
+```{r checking unit roots on transformed oil, include=FALSE}
+FRED_data4_mutated %>%
+  features(oil, unitroot_ndiffs) %>%
+   kable(format = "html", table.attr = "style='width:30%;' ") %>% 
+    kableExtra::kable_styling()
+```
+```{r checking unit roots on transformed treasury, include=FALSE}
+FRED_data4_mutated %>%
+  features(treasury, unitroot_ndiffs) %>%
+   kable(format = "html", table.attr = "style='width:30%;' ") %>% 
+    kableExtra::kable_styling()
+```
+
+***
+
+###### **Our Model:**
+
+To determine the specification for our model we need to determine the number of lagged variables to include in the equation. In order to determine the number of lags  we will use the Hannan-Quin criteria in the `VARselect` function output. The number of lags in this model will be one lag, or one month. For VAR models we want to order the variables by the most exogenous first to the most endogenous last. Intuatively, we will put `Oil` first as we predict it to be the more exogenous variable of the two. Exogenous meaning it is not affected by the other factors in the model. We then place Treasury Bond yields `treasury` second as it is more endogenous compared to `Oil`. Endogenous meaning this variable is dependent on other variables. This order is important for the Impulse Response Function we will do later. After the order is set and we have the number of lags selected we can then specify our equation. The equation for our VAR(1) model will follow this equation:
+
+\begin{align*}
+x_{t,1} = \alpha_{1} + \phi_{11} x_{t-1,{1}} + \phi_{12} x_{t-1,{2}} + \varepsilon_{t,1} \\
+x_{t,2} = \alpha_{2} + \phi_{21} x_{t-1,{1}} + \phi_{22} x_{t-1,{2}} + \varepsilon_{t,2}
+\end{align*}
+
+
+This model simply states that ($x_{t,1}$) `Oil` in the current period is a linear function of the one-lagged values of all variables in the set. The same is true for ($x_{t,2}$) `treasury`. Since the equations are the same on both the right hand sides we can use our VAR(1) model to use the least squares estimator (minimizing the sum of squared errors($\varepsilon{i,{t}})$)) by treating each equation as a seemingly unrelated regression. Here, the order of variable inputted into the VAR does not matter. We treat each variable symmetrically. We model each variable as endogenous, they are modeled as if they all influence each other. 
+
+In the next few sections we will test to see how/if one variable responds to a asymmetric shock from the steady state in the other variable. Basically, are the variables coupled.
+
+
+```{r ording our data frame to put the most exogenous varibale first which is oil, include= FALSE}
+X <- as.ts(FRED_data4_mutated, start = c(1995,2), frequency =  12)
+X_sort <- X[,c(2,1)]
+```
+
+```{r determing the number of lags for out VAR model, include=FALSE}
+test <- VARselect(X_sort, lag.max = 12, type = "const")
+#test
+p <- test$selection[2]
+
+```
+
+```{r generating the VAR model and checking covariance and variance matrixies}
+var_oil <- VAR(X_sort,p=p,type="const")
+#summary(var_oil)
+```
+
+***
+
+###### **Granger Causality Test:**
+
+We then use the Granger Causality Test to test for "causality"/ directionality. I put causality in quotations due to the test being improperly named. This test actually tests whether one variables lagged values can be used to forecast future values of another variables. In the first test we reject the hypothesis that oil prices do not predict a response in future Treasury Bond yields. We then conclude the alternative hypothesis that oil prices do predict a response in future Treasury Bond yields. The second test we conclude that Treasury Bonds yields do not predict future oil prices.
+
+This is good news!
+
+
+```{r testing if oil prices causes treasury yields}
+cat("H0: oil does not cause treasury, H1: it does \n")
+
+grangertest(treasury ~ oil, order=p, data = X_sort)
+```
+
+```{r testing if treasury yields causes oil prices}
+cat("H0: treasury does not cause oil, H1: it does \n")
+
+grangertest(oil ~ treasury, order=p, data = X_sort)
+```
+
+
+
+***
+
+###### **Impulse Response Functions (IRF):**
+
+
+One of the most useful graphs we can produce for this analysis is the Impulse Response Function graph. In each graph we start the variables out at their steady state this is the solid red line at 0. The steady state is when there is no changes in the variables. In the first graph we introduce a positive shock to oil prices at time zero. This shock increases oil prices by about 8.5% or one standard deviation from its steady state value. Immediately we observe that treasury yields move. And they move up about 2%. This is a solid indication of cointergration between the variables. Oil prices move Treasury Bond yields follow. The second graph shows what happens when we introduce a shock to Treasury Bond yields when at the steady state. We observe that oil prices don't change in a significant way. Long-term bond yields move oil prices don't care.
+
+
+
+
+```{r}
+plot(irf(var_oil, n.ahead = 6, boot = TRUE))
+```
+
+
+***
+
+###### **Forecast Error Variance Decomposition:**
+
+The chart below displays the output of a Forecasting Error Variance Decomposition. This shows the amount of information each variable contributes to the each other from the VAR model. This first section shows how much the future variation in oil and is caused by oil itself and Treasury Bonds yields. Practically 100% in the variation in oil prices is due to the variation in oil prices. Treasury Bond yields do not affect how oil prices fluctuate in the future. However, the second graph shows that 15% of the future predicted variation in treasury yields are due to past changes in oil prices. 
+
+
+```{r}
+fevd(var_oil, n.ahead = 12)
+```
+
+
+***
+
+###### **Conclusion:**
+
+From the Granger Test, Impulse Response Function, and the Forecast Error Variance Decomposition outputs we find evidence of cointegration between oil prices and 10-year Treasury Bond yields. Specifically, we find a one sided relationship between oil prices and treasury bond yields. A change in the price of oil affects 10-year Treasury Bond yields downstream. Using monthly data we find that it takes up to one month for the asymmetric price transmission from oil prices to bond yields to occur. To more precisely pin down the transmission timeline, daily data would be preferred to monthly data. However, our initial intuition seems to hold. There seems to be a link between oil prices and 10-year Treasury Bond yields. The variables are most likely cointegrated through inflation levels, inflation expectations and future interest rates. 
+
+The million dollar question... how do we exploit this? The following is just an hypothesis and not financial advice. The first indicator we would look for are oil price surges, typically ones that are predicted to last. Signals for the this to happen can stem from domestic policy, the US halts domestic oil production and becomes more reliant on foreign oil. International news, OPEC wants to stick it to the rest of the world by raising prices, international wars in the Middle East. Looking for signals that would affect the price of oil, will in turn tell us if the cost of input for all US sectors are increasing. When the price of oil is surging and the countries economic outlook is negative let the games begin. We know that a persistence in expected inflation is a self fulfilling prophecy. Increasing costs for the same goods leads to inflation. When it seems like the economy is heading south sell your bonds. Before the FED raises interest rates to combat inflation, sell your bonds. The reasoning is that once interest rates rise the bonds you currently have will be worth less than the bonds issued after interest rates increase. People will opt to buy the new bonds with higher interest payments. In order to dump your bonds you will have to sell them a lower value to be competitive. So, before the FED raises interest rates you sell. Once the FED raises interest rates you can use the money from your liquidated bonds to purchase new ones. Interest rates are now high, buy newly issued bonds, lock in your high interest payments. If the economy stabilizes and interests rates fall, you now have bonds you can liquidate at a premium. Your bonds have high interest payments, high yields. People now looking to buy bonds can either buy low interest payment bonds from the FED or they can buy your high interest yield bonds for a premium. The window for arbitrage here is probably slim and the profits you can make are probably slim too, however, it's an arbitrage none the less.
+
+***
+
+
+
+
+
