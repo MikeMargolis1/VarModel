@@ -35,9 +35,6 @@ require(vars)
 require(lmtest)
 require(urca)
 require(tsDyn)
-require(apt)
-
-
 ```
 
 
